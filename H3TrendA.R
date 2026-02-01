@@ -176,3 +176,72 @@ cat(sprintf("\n[Step 4] 保存结果至: %s/%s \n", getwd(), output_filename))
 write_csv(final_df, output_filename)
 
 cat("全部完成！请检查输出文件。\n")
+
+# ==============================================================================
+# 分段趋势分析 (Phased Trend Analysis) - 独立文件版
+# ==============================================================================
+
+# 1. 定义三个时间段 (Policy-Driven Phases)
+phases <- list(
+  "Phase1_1990_2000" = as.character(1990:2000),
+  "Phase2_2000_2010" = as.character(2000:2010),
+  "Phase3_2010_2025" = as.character(2010:2025)
+)
+
+cat("\n开始分段趋势分析...\n")
+
+# 2. 循环处理每个阶段
+for (phase_name in names(phases)) {
+  
+  # 获取当前阶段的年份列表
+  current_years <- phases[[phase_name]]
+  cat(sprintf("\n>>> 正在处理阶段: %s (包含 %d 年) <<<\n", phase_name, length(current_years)))
+  
+  # -------------------------------------------------------
+  # A. 准备数据矩阵
+  # -------------------------------------------------------
+  # 显式按年份提取列，确保顺序正确
+  phase_matrix <- as.matrix(combined_df[, current_years])
+  
+  # -------------------------------------------------------
+  # B. 并行计算趋势 (使用之前定义的 calc_trend_stats 函数)
+  # -------------------------------------------------------
+  # 使用 future_apply 进行并行计算
+  phase_res_matrix <- future_apply(phase_matrix, 1, calc_trend_stats)
+  
+  # 转置并转为 DataFrame
+  phase_res_df <- as.data.frame(t(phase_res_matrix))
+  
+  # 转换数据类型 (字符 -> 数值)
+  phase_res_df$Sen_Slope <- as.numeric(phase_res_df$Sen_Slope)
+  phase_res_df$P_Value <- as.numeric(phase_res_df$P_Value)
+  
+  # -------------------------------------------------------
+  # C. 计算该阶段的统计指标 (可选，增强可读性)
+  # -------------------------------------------------------
+  # 计算该阶段的均值，方便你计算相对变化率
+  phase_mean <- rowMeans(phase_matrix, na.rm = TRUE)
+  # 计算该阶段的总变化量 (斜率 * 年份跨度)
+  total_change <- phase_res_df$Sen_Slope * (length(current_years) - 1)
+  
+  # -------------------------------------------------------
+  # D. 拼接最终表格 (ID + 结果 + 原始数据)
+  # -------------------------------------------------------
+  output_df <- bind_cols(
+    GRID_ID = combined_df$GRID_ID,    # 1. ID
+    phase_res_df,                     # 2. 趋势结果 (Slope, P, Type)
+    Phase_Mean = phase_mean,          # 3. 阶段均值 (辅助检查)
+    Total_Change = total_change,      # 4. 阶段总变化量 (辅助检查)
+    as.data.frame(phase_matrix)       # 5. 该阶段的原始年份数据 (用于人工核对)
+  )
+  
+  # -------------------------------------------------------
+  # E. 独立保存文件
+  # -------------------------------------------------------
+  file_name <- sprintf("H3_L7_Trend_%s.csv", phase_name)
+  cat(sprintf("正在保存文件: %s ...\n", file_name))
+  
+  write_csv(output_df, file_name)
+}
+
+cat("\n所有阶段分析完成！请在工作目录查看生成的 3 个 CSV 文件。\n")
